@@ -160,6 +160,6 @@ jobs:
             -H "Authorization: Bearer ${XYGENI_TOKEN}" \
             -H "Content-Type: application/json" \
             --data @update-payload.json \
-            "https://api.xygeni.io/deps-doctor-service/project/update/${PROJECT_ID}"
+            "https://api.xygeni.io/project/update/${PROJECT_ID}"
         env:
           XYGENI_TOKEN: ${{ secrets.XYGENI_TOKEN }}
