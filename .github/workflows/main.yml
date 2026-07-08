@@ -103,5 +103,63 @@ jobs:
             --branch="${{ github.ref_name }}"
             -r reports/gitleaks-report.json -f secrets-gitleaks
             -r reports/semgrep-report.sarif -f sast-sarif
-            -r reports/deps.xygeni-sca-report.json
+            -r reports/deps.xygeni-sca-report.json -f sca-sarif
             --never-fail
+
+      - name: Update SCM URL in Xygeni
+        run: |
+          set -euo pipefail
+
+          REPO_NAME="${{ github.repository }}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+
+          # 1. Find the project by matching its name against the repository full name
+          curl -s -H "Authorization: Bearer ${XYGENI_TOKEN}" \
+            "https://api.xygeni.io/allprojects/list?pageSize=200&sortBy=LAST_SCAN:DESC&getCount=true&pageNum=1" \
+            -o allprojects.json
+
+          PROJECT_ID=$(jq -r --arg name "$REPO_NAME" \
+            '.allProjectListPojo.allProjectPojoList[] | select(.name==$name) | .projectId' \
+            allprojects.json | head -n1)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "::error::No project found in Xygeni matching name '$REPO_NAME'"
+            exit 1
+          fi
+
+          echo "Found project id: $PROJECT_ID"
+
+          # 2. Fetch current project detail to preserve unrelated fields
+          curl -s -H "Authorization: Bearer ${XYGENI_TOKEN}" \
+            "https://api.xygeni.io/project/detail/${PROJECT_ID}" \
+            -o project-detail.json
+
+          # 3. Build the update payload, changing only scmInfo
+          jq -n \
+            --slurpfile detail project-detail.json \
+            --arg url "$REPO_URL" \
+            --arg branch "$BRANCH" \
+            '$detail[0] as $d | {
+              name: $d.name,
+              tags: $d.tags,
+              policyId: $d.policyId,
+              standardId: $d.standardId,
+              scmKind: "github",
+              scmInfo: {
+                kind: "github",
+                url: $url,
+                defaultBranch: $branch
+              }
+            }' > update-payload.json
+
+          cat update-payload.json
+
+          # 4. Push the update
+          curl -s -X POST \
+            -H "Authorization: Bearer ${XYGENI_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @update-payload.json \
+            "https://api.xygeni.io/deps-doctor-service/project/update/${PROJECT_ID}"
+        env:
+          XYGENI_TOKEN: ${{ secrets.XYGENI_TOKEN }}
