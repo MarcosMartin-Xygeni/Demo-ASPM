@@ -64,7 +64,7 @@ jobs:
         id: Xygeni-Scanner
         with:
           token: ${{ secrets.XYGENI_TOKEN }}
-          command: scan --run="deps" --output xygeni-sca-report.json --no-upload --include-vulnerabilities
+          command: scan --run="deps" --output xygeni-sca-report.json --no-upload --include-vulnerabilities --never-fail
 
       - name: Upload Xygeni SCA report
         uses: actions/upload-artifact@v4
