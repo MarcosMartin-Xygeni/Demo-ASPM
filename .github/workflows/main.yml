@@ -1,0 +1,75 @@
+name: Security Scan Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secrets-scan:
+    name: Analyze Secrets with Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_ENABLE_SUMMARY: true
+          GITLEAKS_REPORT_FORMAT: json
+          GITLEAKS_REPORT_PATH: gitleaks-report.json
+        continue-on-error: true
+
+      - name: Upload Gitleaks report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: warn
+
+  sast-scan:
+    name: Analyze SAST with Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          pip install semgrep
+          semgrep scan --config auto --json --output semgrep-report.json .
+        continue-on-error: true
+
+      - name: Upload Semgrep report
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: warn
+
+  sca-scan:
+    name: Analyze SCA with Xygeni
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Xygeni needs more than the default depth of 1 for some scans
+          fetch-depth: 0
+
+      - name: Run Xygeni SCA
+        uses: xygeni/xygeni-action@v6
+        id: Xygeni-Scanner
+        with:
+          token: ${{ secrets.XYGENI_TOKEN }}
+          command: sca --report json --output xygeni-sca-report.json
+          fail_on: never
+
+      - name: Upload Xygeni SCA report
+        uses: actions/upload-artifact@v4
+        with:
+          name: xygeni-sca-report
+          path: xygeni-sca-report.json
+          if-no-files-found: warn
