@@ -1,9 +1,28 @@
 name: Security Scan Pipeline
 on:
   workflow_dispatch:
+    inputs:
+      run_gitleaks:
+        description: "Run Secrets scan (Gitleaks)"
+        type: boolean
+        default: true
+      run_semgrep:
+        description: "Run SAST scan (Semgrep)"
+        type: boolean
+        default: true
+      run_xygeni_sca:
+        description: "Run SCA scan (Xygeni)"
+        type: boolean
+        default: true
+      project_name:
+        description: "Project name in Xygeni (leave empty to use the repository name)"
+        type: string
+        default: ""
+
 jobs:
   secrets-scan:
     name: Analyze Secrets with Gitleaks
+    if: ${{ inputs.run_gitleaks }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,6 +45,7 @@ jobs:
 
   sast-scan:
     name: Analyze SAST with Semgrep
+    if: ${{ inputs.run_semgrep }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -46,6 +66,7 @@ jobs:
 
   sca-scan:
     name: Analyze SCA with Xygeni
+    if: ${{ inputs.run_xygeni_sca }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -70,51 +91,73 @@ jobs:
     name: Consolidate reports in Xygeni
     runs-on: ubuntu-latest
     needs: [secrets-scan, sast-scan, sca-scan]
+    # Run even if one or more scan jobs were skipped (unchecked) or failed, as long as the workflow wasn't cancelled
+    if: ${{ !cancelled() }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Download Gitleaks report
+        if: ${{ inputs.run_gitleaks }}
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: gitleaks-report
           path: reports
 
       - name: Download Semgrep report
+        if: ${{ inputs.run_semgrep }}
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: semgrep-report
           path: reports
 
       - name: Download Xygeni SCA report
+        if: ${{ inputs.run_xygeni_sca }}
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: deps.xygeni-sca-report
           path: reports
 
+      - name: Build report-upload arguments
+        id: build_args
+        run: |
+          ARGS=""
+          if [ -f reports/gitleaks-report.json ]; then
+            ARGS="$ARGS -r reports/gitleaks-report.json -f secrets-gitleaks"
+          fi
+          if [ -f reports/semgrep-report.sarif ]; then
+            ARGS="$ARGS -r reports/semgrep-report.sarif -f sast-sarif"
+          fi
+          if [ -f reports/deps.xygeni-sca-report.json ]; then
+            ARGS="$ARGS -r reports/deps.xygeni-sca-report.json"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       - name: Upload reports to Xygeni
+        if: ${{ steps.build_args.outputs.args != '' }}
         uses: xygeni/xygeni-action@v6
         id: Xygeni-Scanner
         with:
           token: ${{ secrets.XYGENI_TOKEN }}
           command: >
             report-upload
-            --name="${{ github.repository }}"
+            --name="${{ inputs.project_name || github.repository }}"
             --branch="${{ github.ref_name }}"
-            -r reports/gitleaks-report.json -f secrets-gitleaks
-            -r reports/semgrep-report.sarif -f sast-sarif
-            -r reports/deps.xygeni-sca-report.json -f sca-sarif
+            ${{ steps.build_args.outputs.args }}
             --never-fail
 
       - name: Update SCM URL in Xygeni
         run: |
           set -euo pipefail
 
-          REPO_NAME="${{ github.repository }}"
+          REPO_NAME="${{ inputs.project_name || github.repository }}"
           REPO_URL="${{ github.server_url }}/${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
 
-          # 1. Find the project by matching its name against the repository full name
+          # 1. Find the project by matching its name against the configured project name
           curl -s -H "Authorization: Bearer ${XYGENI_TOKEN}" \
             "https://api.xygeni.io/allprojects/list?pageSize=200&sortBy=LAST_SCAN:DESC&getCount=true&pageNum=1" \
             -o allprojects.json
