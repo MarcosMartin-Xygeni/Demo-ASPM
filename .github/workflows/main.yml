@@ -33,7 +33,7 @@ jobs:
       - name: Run Semgrep
         run: |
           pip install semgrep
-          semgrep scan --config auto --json --json-output=semgrep-report.json --sarif --sarif-output=semgrep-report.sarif .
+          semgrep scan --config auto --json-output=semgrep-report.json --sarif-output=semgrep-report.sarif .
         continue-on-error: true
       - name: Upload Semgrep report
         uses: actions/upload-artifact@v4
