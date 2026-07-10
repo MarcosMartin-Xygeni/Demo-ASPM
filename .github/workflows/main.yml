@@ -14,6 +14,10 @@ on:
         description: "Run SCA scan (Xygeni)"
         type: boolean
         default: true
+      update_scm_url:
+        description: "Update project SCM URL in Xygeni"
+        type: boolean
+        default: true
       project_name:
         description: "Project name in Xygeni (leave empty to use the repository name)"
         type: string
@@ -155,6 +159,7 @@ jobs:
             --never-fail
 
       - name: Update SCM URL in Xygeni
+        if: ${{ inputs.update_scm_url }}
         run: |
           set -euo pipefail
 
